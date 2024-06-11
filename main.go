@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+
+	"log"
+	"net/http"
+
 	"github.com/gorilla/mux"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"log"
-	"net/http"
 )
 
 var err error
@@ -32,6 +34,10 @@ func main() {
 	r.HandleFunc("/books", func(w http.ResponseWriter, r *http.Request) {
 		getBooksHandler(w, db)
 
+	}).Methods("GET")
+
+	r.HandleFunc("/books/{id}", func(w http.ResponseWriter, r *http.Request) {
+		getBookHandler(w, r, db)
 	}).Methods("GET")
 
 	// enable CORS middleware
@@ -60,7 +66,7 @@ func home(w http.ResponseWriter, r *http.Request) {
 func getBooksHandler(w http.ResponseWriter, db *gorm.DB) {
 	var books []Book
 
-	// make sure db is connected]
+	// make sure db is connected
 	if db == nil {
 		http.Error(w, "Database connection failed", http.StatusInternalServerError)
 		return
@@ -68,4 +74,15 @@ func getBooksHandler(w http.ResponseWriter, db *gorm.DB) {
 		db.Find(&books)
 		json.NewEncoder(w).Encode(books)
 	}
+}
+
+// get a book by id
+func getBookHandler(w http.ResponseWriter, r *http.Request, db *gorm.DB) {
+	var book Book
+	// get the id from the request url
+	params := mux.Vars(r)
+
+	// get the book by id
+	db.First(&book, params["id"])
+	json.NewEncoder(w).Encode(book)
 }
