@@ -2,91 +2,70 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/gorilla/mux"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"log"
 	"net/http"
-	"fmt"
-	"github.com/google/uuid"
 )
 
-type Book struct {
-	ID		string `json:"id"`
-	Title	string `json:"title"`
-	Author	string `json:"author"`
-}
-
-// replace this with actual database
-// ! this is only for testing http requests at the moment
-var books = map[string]Book{
-	// "1": {ID: generateID(), Title: "The Great Gatsby", Author: "F. Scott Fitzgerald"},
-	// "2": {ID: generateID(), Title: "To Kill a Mockingbird", Author: "Harper Lee"},
-	// "3": {ID: generateID(), Title: "1984", Author: "George Orwell"},
-}
-
-func generateID() string {
-	return uuid.New().String()
-}
-
-// get all the books
-func getAllBooks(w http.ResponseWriter, r *http.Request) {
-
-	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(books)
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-}
-
-// get a book by id
-func getBook(w http.ResponseWriter, r *http.Request) {
-	// get the id from the url query string
-	id := r.URL.Path[len("/books/"):]
-	
-	book, ok := books[id]
-
-	if !ok {
-		http.Error(w, "Book not found", http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(book)
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-}
-
-// create a book
-func createBook(w http.ResponseWriter, r *http.Request) {
-	var book Book
-
-	fmt.Println(r.Body)
-
-	err := json.NewDecoder(r.Body).Decode(&book)
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	book.ID = generateID()
-	books[book.ID] = book
-
-	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(book)
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-}
+var err error
 
 func main() {
-	http.HandleFunc("/books", getAllBooks)
-	http.HandleFunc("/books/", getBook)
-	http.HandleFunc("/books/create", createBook)
-	http.ListenAndServe(":8000", nil)
+
+	// set database connection
+	dsbn := "host=localhost user=postgres password= dbname=go-bookstore-db port=5432 sslmode=disable"
+	db, err := gorm.Open(postgres.Open(dsbn), &gorm.Config{})
+	if err != nil {
+		panic("Failed to connect to database")
+	}
+
+	// migrate the schema
+	db.AutoMigrate(&Book{})
+	Seed(db)
+
+	// create a new router
+	r := mux.NewRouter()
+
+	// define routes
+	r.HandleFunc("/", home).Methods("GET")
+	r.HandleFunc("/books", func(w http.ResponseWriter, r *http.Request) {
+		getBooksHandler(w, db)
+
+	}).Methods("GET")
+
+	// enable CORS middleware
+	corsMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	// attach cors middleware to router
+	r.Use(corsMiddleware)
+
+	// listen for requests in 8080
+	log.Fatal(http.ListenAndServe(":8080", r))
+}
+
+// test api
+func home(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("Welcome to the bookstore"))
+}
+
+// get all the books from the database
+func getBooksHandler(w http.ResponseWriter, db *gorm.DB) {
+	var books []Book
+
+	// make sure db is connected]
+	if db == nil {
+		http.Error(w, "Database connection failed", http.StatusInternalServerError)
+		return
+	} else {
+		db.Find(&books)
+		json.NewEncoder(w).Encode(books)
+	}
 }
